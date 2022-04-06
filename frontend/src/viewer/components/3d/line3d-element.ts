@@ -23,6 +23,8 @@ export class Line3dElement extends connect(store)(LitElement) {
   @state()
   private gndLayer?: GraphicsLayer;
   @state()
+  private curtainLayer?: GraphicsLayer;
+  @state()
   private opacity = 1;
   @state()
   private timeSec = 0;
@@ -52,8 +54,26 @@ export class Line3dElement extends connect(store)(LitElement) {
     ],
   };
 
+  private curtainSymbol = {
+    type: 'line-3d',
+    symbolLayers: [
+      {
+        type: 'path',
+        material: { color: [50, 50, 50, 0.6] },
+        width: 0,
+        height: 5000,
+        join: 'miter',
+        cap: 'butt',
+        anchor: 'top',
+        profileRotation: 'heading',
+        profile: 'quad',
+      },
+    ],
+  };
+
   private graphic?: Graphic;
   private gndGraphic?: Graphic;
+  private curtainGraphic?: Graphic;
   private path3d: number[][] = [];
 
   disconnectedCallback(): void {
@@ -70,12 +90,13 @@ export class Line3dElement extends connect(store)(LitElement) {
     }
     this.layer = state.arcgis.graphicsLayer;
     this.gndLayer = state.arcgis.gndGraphicsLayer;
+    this.curtainLayer = state.arcgis.curtainGraphicsLayer;
     this.timeSec = state.app.timeSec;
     this.multiplier = state.arcgis.altMultiplier;
   }
 
   shouldUpdate(changedProps: PropertyValues): boolean {
-    if (this.layer == null || this.gndLayer == null) {
+    if (this.layer == null || this.gndLayer == null || this.curtainLayer == null) {
       this.destroyLines();
       return false;
     }
@@ -90,9 +111,9 @@ export class Line3dElement extends connect(store)(LitElement) {
 
       const timeSec = this.timeSec + this.offsetSeconds;
 
-      const start = Math.min(findIndexes(timeSecs, timeSec - 15 * 60).beforeIndex, timeSecs.length - 4);
+      let start = Math.min(findIndexes(timeSecs, timeSec - 15 * 60).beforeIndex, timeSecs.length - 4);
       const end = Math.max(findIndexes(timeSecs, timeSec).beforeIndex + 1, 4);
-      const path = this.path3d.slice(start, end);
+      let path = this.path3d.slice(start, end);
       // The last point must match the marker position and needs to be interpolated.
       const pos = sel.getTrackLatLonAlt(store.getState())(timeSec, this.track) as LatLonZ;
       path.push([pos.lon, pos.lat, this.multiplier * pos.alt]);
@@ -103,23 +124,39 @@ export class Line3dElement extends connect(store)(LitElement) {
       this.gndGraphic?.set('geometry', this.line);
       this.gndGraphic?.set('attributes', { trackId: this.track.id });
 
-      const color = new Color(this.color);
+      let color = new Color(this.color);
       color.a = this.opacity;
-      const rgba = color.toRgba();
+      let rgba = color.toRgba();
       this.symbol.symbolLayers[0].material.color = rgba;
       this.graphic.set('symbol', this.symbol);
+
+      start = Math.min(findIndexes(timeSecs, timeSec - 30).beforeIndex, timeSecs.length - 4);
+      path = this.path3d.slice(start, end);
+      path.push([pos.lon, pos.lat, this.multiplier * pos.alt]);
+      this.line.paths[0] = path;
+
+      this.curtainGraphic?.set('geometry', this.line);
+      this.curtainGraphic?.set('attributes', { trackId: this.track.id });
+
+      color = new Color(this.color);
+      color.a = 0.2;
+      rgba = color.toRgba();
+      this.curtainSymbol.symbolLayers[0].material.color = rgba;
+      this.curtainGraphic?.set('symbol', this.curtainSymbol);
     }
 
     return false;
   }
 
   private maybeCreateLines(): void {
-    if (this.layer && this.gndLayer && this.track) {
+    if (this.layer && this.gndLayer && this.curtainLayer && this.track) {
       this.graphic = new Graphic();
       this.layer.add(this.graphic);
       this.symbol.symbolLayers[0].material.color = [50, 50, 50, 0.6];
       this.gndGraphic = new Graphic({ symbol: this.symbol as any });
       this.gndLayer.add(this.gndGraphic);
+      this.curtainGraphic = new Graphic({ symbol: this.curtainSymbol as any });
+      this.curtainLayer.add(this.curtainGraphic);
       this.path3d.length = 0;
       const track = this.track;
       this.track.lat.forEach((lat, i) => this.path3d.push([track.lon[i], lat, this.multiplier * track.alt[i]]));
@@ -135,6 +172,10 @@ export class Line3dElement extends connect(store)(LitElement) {
       this.gndLayer?.remove(this.gndGraphic);
     }
     this.gndGraphic = undefined;
+    if (this.curtainGraphic) {
+      this.curtainLayer?.remove(this.curtainGraphic);
+    }
+    this.curtainGraphic = undefined;
     this.path3d.length = 0;
   }
 

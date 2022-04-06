@@ -22,7 +22,12 @@ import { alertController } from '@ionic/core/components';
 
 import * as msg from '../../logic/messages';
 import { setApiLoading, setTimeSec, setView3d } from '../../redux/app-slice';
-import { setElevationSampler, setGndGraphicsLayer, setGraphicsLayer } from '../../redux/arcgis-slice';
+import {
+  setCurtainGraphicsLayer,
+  setElevationSampler,
+  setGndGraphicsLayer,
+  setGraphicsLayer,
+} from '../../redux/arcgis-slice';
 import { setCurrentLocation, setCurrentZoom } from '../../redux/location-slice';
 import * as sel from '../../redux/selectors';
 import { RootState, store } from '../../redux/store';
@@ -44,6 +49,7 @@ export class Map3dElement extends connect(store)(LitElement) {
   private view?: SceneView;
   private graphicsLayer?: GraphicsLayer;
   private gndGraphicsLayer?: GraphicsLayer;
+  private curtainGraphicsLayer?: GraphicsLayer;
   // Elevation layer with exaggeration.
   private elevationLayer?: BaseElevationLayer;
   private basemaps: Record<string, string | Basemap | null> = {
@@ -117,6 +123,7 @@ export class Map3dElement extends connect(store)(LitElement) {
     this.subscriptions.length = 0;
     store.dispatch(setGraphicsLayer(undefined));
     store.dispatch(setGndGraphicsLayer(undefined));
+    store.dispatch(setCurtainGraphicsLayer(undefined));
     store.dispatch(setElevationSampler(undefined));
     this.view?.destroy();
     this.view = undefined;
@@ -136,8 +143,9 @@ export class Map3dElement extends connect(store)(LitElement) {
     });
 
     this.graphicsLayer = new GraphicsLayer();
+    this.curtainGraphicsLayer = new GraphicsLayer();
     this.gndGraphicsLayer = new GraphicsLayer({ elevationInfo: { mode: 'on-the-ground' } });
-    this.map.addMany([this.graphicsLayer, this.gndGraphicsLayer]);
+    this.map.addMany([this.graphicsLayer, this.curtainGraphicsLayer, this.gndGraphicsLayer]);
 
     const view = new SceneView({
       container: 'map3d',
@@ -153,6 +161,7 @@ export class Map3dElement extends connect(store)(LitElement) {
 
     store.dispatch(setGraphicsLayer(this.graphicsLayer));
     store.dispatch(setGndGraphicsLayer(this.gndGraphicsLayer));
+    store.dispatch(setCurtainGraphicsLayer(this.curtainGraphicsLayer));
 
     view.ui.remove('zoom');
 

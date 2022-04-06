@@ -10,6 +10,8 @@ type ArcgisState = {
   graphicsLayer?: GraphicsLayer;
   // Graphics layer with elevation mode "on-the-ground" for shadows.
   gndGraphicsLayer?: GraphicsLayer;
+  // Graphics layer for the curtain.
+  curtainGraphicsLayer?: GraphicsLayer;
   // Sample ground elevation in the SceneView (takes the exaggeration into account).
   elevationSampler?: ElevationSampler;
 };
@@ -28,6 +30,9 @@ const arcgisSlice = createSlice({
     setGndGraphicsLayer: (state, action: PayloadAction<GraphicsLayer | undefined>) => {
       state.gndGraphicsLayer = action.payload;
     },
+    setCurtainGraphicsLayer: (state, action: PayloadAction<GraphicsLayer | undefined>) => {
+      state.curtainGraphicsLayer = action.payload;
+    },
     setAltitudeMultiplier: (state, action: PayloadAction<number>) => {
       state.altMultiplier = action.payload;
     },
@@ -38,5 +43,10 @@ const arcgisSlice = createSlice({
 });
 
 export const reducer = arcgisSlice.reducer;
-export const { setAltitudeMultiplier, setElevationSampler, setGraphicsLayer, setGndGraphicsLayer } =
-  arcgisSlice.actions;
+export const {
+  setAltitudeMultiplier,
+  setElevationSampler,
+  setGraphicsLayer,
+  setGndGraphicsLayer,
+  setCurtainGraphicsLayer,
+} = arcgisSlice.actions;
