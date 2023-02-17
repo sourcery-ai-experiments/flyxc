@@ -63,8 +63,12 @@ export function trackToFeatures(track: protos.LiveTrack, gapMin: number): any[] 
         line.push([track.lon[i], track.lat[i], track.alt[i]]);
       }
       if (line.length > 1) {
+        const id = String(track.id ?? track.idStr);
+        const timeSec = track.timeSec;
         const properties: { [k: string]: unknown } = {
-          id: String(track.id ?? track.idStr),
+          id,
+          // hash changes when the line changes (either start, end, or nb of points).
+          hash: `${id}-${timeSec[firstIndex]}-${timeSec[lastIndex]}-${lastIndex - firstIndex}`,
           firstIndex,
           lastIndex,
           lastTimeSec: track.timeSec[lastIndex],
@@ -89,13 +93,13 @@ export function trackToFeatures(track: protos.LiveTrack, gapMin: number): any[] 
     if (segments.length > 0) {
       const { firstIndex, lastIndex } = segments[segments.length - 1];
       let previousSec = track.timeSec[lastIndex];
-      let extraPoints = isUfo(track.flags[firstIndex]) ? 1 : 3;
-      for (let i = lastIndex - 1; i >= firstIndex && extraPoints > 0; --i) {
+      let numPoints = isUfo(track.flags[firstIndex]) ? 0 : 3;
+      for (let i = lastIndex - 1; i >= firstIndex && numPoints > 0; --i) {
         const currentSec = track.timeSec[i];
         if (previousSec - currentSec >= 2 * 60) {
           previousSec = currentSec;
           addPoint(pointsByIndex, track, i);
-          extraPoints--;
+          numPoints--;
         }
       }
     }
@@ -117,6 +121,7 @@ function addPoint(
   let fixType: FixType = FixType.dot;
   if (index == len - 1) {
     fixType = FixType.pilot;
+    props.isLast = true;
     if (len > 1) {
       const previous = { lat: track.lat[len - 2], lon: track.lon[len - 2] };
       const current = { lat: track.lat[len - 1], lon: track.lon[len - 1] };
@@ -134,6 +139,7 @@ function addPoint(
     fixType = FixType.emergency;
   }
   const pilotId = String(track.id ?? track.idStr);
+  const timeSec = track.timeSec[index];
   pointsByIndex.set(index, {
     type: 'Feature',
     geometry: {
@@ -143,13 +149,15 @@ function addPoint(
     properties: {
       ...props,
       id: `${pilotId}-${index}`,
+      // hash changes if the fix type changes.
+      hash: `${pilotId}-${timeSec}-${fixType}`,
       pilotId,
       index,
       fixType,
       isUfo: isUfo(track.flags[index]),
       alt: track.alt[index],
       gndAlt: track.extra[index]?.gndAlt,
-      timeSec: track.timeSec[index],
+      timeSec,
       name: track.name,
     },
   });

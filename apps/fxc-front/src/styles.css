@@ -48,6 +48,36 @@ chart-element.has-tracks {
   white-space: pre;
 }
 
+.live-label {
+  cursor: zoom-in;
+  position: relative;
+  font-size: 14px;
+  width: 1px;
+  height: 1px;
+  overflow: show;
+}
+
+.live-label svg {
+  position: absolute;
+}
+
+.live-label ul {
+  width: max-content;
+  position: absolute;
+  transform: translate(-50%, 10px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: center;
+}
+
+.live-label li {
+  text-shadow: 0 0 3px #fff, 2px 0 3px #fff, -2px 0 3px #fff, 0 0 3px #fff,
+    2px 0 3px #fff, -2px 0 3px #fff;
+}
+
+
+
 @font-face {
   font-family: 'Line Awesome Free';
   font-style: normal;

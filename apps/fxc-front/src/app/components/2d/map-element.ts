@@ -47,8 +47,8 @@ function loadGMaps(): Promise<void> {
     const load = (resolve: () => void) => {
       new Loader({
         apiKey: getApiKey('gmaps', store.getState().track.domain),
-        version: 'weekly',
-        libraries: ['geometry'],
+        version: 'beta',
+        libraries: ['geometry', 'marker'],
       })
         .load()
         .then(resolve);
@@ -242,17 +242,17 @@ export class MapElement extends connect(store)(LitElement) {
           left: 0px;
           z-index: 1;
         }
-        path {
-          stroke-width: 1px;
-          stroke: black;
-          fill: none;
-        }
-        svg {
+        svg.drw {
           width: 100%;
           height: 100%;
           touch-action: none;
         }
-        rect {
+        svg.drw path {
+          stroke-width: 1px;
+          stroke: black;
+          fill: none;
+        }
+        svg.drw rect {
           width: 100%;
           height: 100%;
           opacity: 0.1;
@@ -261,7 +261,7 @@ export class MapElement extends connect(store)(LitElement) {
         }
       </style>
       <div id="drw-container" style=${`display:${this.isFreeDrawing ? 'block' : 'none'}`}>
-        <svg width="100%" height="100%">
+        <svg class="drw" width="100%" height="100%">
           <path d=${this.freeDrawPath}></path>
           <rect width="100%" height="100%"></rect>
         </svg>
@@ -285,7 +285,7 @@ export class MapElement extends connect(store)(LitElement) {
   }
 
   firstUpdated(): void {
-    const rect = this.querySelector('rect') as SVGRectElement;
+    const rect = this.querySelector('svg.drw rect') as SVGRectElement;
     let points: [number, number][] = [];
 
     rect.addEventListener(
