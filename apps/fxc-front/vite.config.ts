@@ -40,6 +40,9 @@ export default defineConfig({
     },
 
     chunkSizeWarningLimit: 3800,
+
+    // esbuild generates an invalid output
+    minify: 'terser',
   },
 
   plugins: [
