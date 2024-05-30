@@ -3,17 +3,6 @@ import { BRecord, IGCFile } from 'igc-parser';
 import { createSegments } from './utils/createSegments';
 import { mergeTracks } from './utils/mergeTracks';
 import { ScoringRules, scoringRules } from './scoringRules';
-import { getDistance } from 'geolib';
-
-// When the track has not enough points (<5), we build a new one by adding interpolated points between existing ones.
-// see this issue https://github.com/mmomtchev/igc-xc-score/issues/231
-const MIN_POINTS = 5;
-const NUM_SEGMENTS_BETWEEN_POINTS = 2;
-
-// For adding interpolated points, this constant adjusts the proximity of the points to the starting point of
-// the segment. We want the added points to be very close to the starting points of the segment so that the solution
-// points returned by the solver are as close as possible (or may be equal) to one of the original points of the track.
-const DISTRIBUTION_FACTOR_FOR_ADDED_POINTS = 1e-5;
 
 // TODO: all console.xxx statements are commented. In the future, we should use a logging library
 
@@ -119,82 +108,24 @@ export function* getOptimizer(
   request: OptimizationRequest,
   rules: ScoringRules,
 ): Iterator<OptimizationResult, OptimizationResult> {
-  if (request.track.points.length == 0) {
+  if (request.track.points.length === 0 || request.track.points.length === 1) {
     // console.warn('Empty track received in optimization request. Returns a 0 score');
     return ZERO_SCORE;
   }
   const originalTrack = request.track;
-  const solverTrack = buildValidTrackForSolver(originalTrack);
-  const flight = toIgcFile(solverTrack);
+  const solverTrack = new SolverTrack(originalTrack);
+  const flight = solverTrack.toIgcFile();
   const solverScoringRules = scoringRules.get(rules);
   const options = toSolverOptions(request.options);
-  const solutionIterator = solver(flight, solverScoringRules || {}, options);
+  const solutionIterator = solver(flight, solverScoringRules ?? {}, options);
   while (true) {
     const solution = solutionIterator.next();
     if (solution.done) {
       // console.debug('solution', JSON.stringify(solution.value, undefined, 2));
-      return toOptimizationResult(solution.value, originalTrack, solverTrack);
+      return toOptimizationResult(solution.value, solverTrack);
     }
-    yield toOptimizationResult(solution.value, originalTrack, solverTrack);
+    yield toOptimizationResult(solution.value, solverTrack);
   }
-}
-
-/**
- * the solver requires at least 5 points, so if there is not enough points,
- * we create points between existing ones
- */
-function buildValidTrackForSolver(track: ScoringTrack) {
-  if (track.points.length >= MIN_POINTS) {
-    return track;
-  }
-  // console.debug(`not enough points (${track.points.length}) in track. Interpolate intermediate points`);
-  track = deepCopy(track);
-  while (track.points.length < MIN_POINTS) {
-    const segments: ScoringTrack[] = [];
-    for (let i = 1; i < track.points.length; i++) {
-      // split each segment of the track into two segments
-      segments.push(
-        createSegments(
-          track.points[i - 1],
-          track.points[i],
-          track.startTimeSec,
-          NUM_SEGMENTS_BETWEEN_POINTS,
-          DISTRIBUTION_FACTOR_FOR_ADDED_POINTS,
-        ),
-      );
-    }
-    track = mergeTracks(...segments);
-  }
-  // console.debug(`new track has ${newTrack.points.length} points`);
-  return track;
-}
-
-/**
- * create an igc file from a track
- * @param track the source track
- */
-function toIgcFile(track: ScoringTrack): IGCFile {
-  const fixes = track.points.map((point): BRecord => {
-    const timeMilliseconds = point.timeSec * 1000;
-    return {
-      timestamp: timeMilliseconds,
-      time: new Date(timeMilliseconds).toISOString(),
-      latitude: point.lat,
-      longitude: point.lon,
-      valid: true,
-      pressureAltitude: null,
-      gpsAltitude: point.alt,
-      extensions: {},
-      fixAccuracy: null,
-      enl: null,
-    };
-  });
-  // we ignore some properties of the igc-file, as they are not required for the computation
-  // @ts-ignore
-  return {
-    date: new Date(track.startTimeSec * 1000).toISOString(),
-    fixes: fixes,
-  };
 }
 
 type SolverOptions = { maxloop?: number; maxcycle?: number };
@@ -206,14 +137,14 @@ function toSolverOptions(options?: OptimizationOptions): SolverOptions {
   };
 }
 
-function toOptimizationResult(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack): OptimizationResult {
+function toOptimizationResult(solution: Solution, solverTrack: SolverTrack): OptimizationResult {
   return {
     score: solution.score ?? 0,
     lengthKm: solution.scoreInfo?.distance ?? 0,
     multiplier: solution.opt.scoring.multiplier,
     circuit: toCircuitType(solution.opt.scoring.code),
     closingRadius: getClosingRadius(solution),
-    solutionIndices: getIndices(solution, originalTrack, solverTrack),
+    solutionIndices: getIndicesInScoringTrack(solution, solverTrack),
     optimal: solution.optimal || false,
   };
 }
@@ -263,73 +194,183 @@ function toCircuitType(code: CircuitTypeCode) {
 // - the turn points
 // - the 'out' closing point
 // - the finish point
-function getIndices(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack) {
+function getIndicesInScoringTrack(solution: Solution, solverTrack: SolverTrack) {
   const result: number[] = [];
-  pushInResult(getEntryPointsStartIndex(solution, originalTrack, solverTrack));
-  pushInResult(getClosingPointsInIndex(solution, originalTrack, solverTrack));
+  pushInResult(getEntryPointsStartIndex(solution, solverTrack), result);
+  pushInResult(getClosingPointsInIndex(solution, solverTrack), result);
   solution.scoreInfo?.tp
     ?.map((turnPoint) => turnPoint.r)
-    .forEach((index) => pushInResult(getPointIndex(index, originalTrack, solverTrack)));
-  pushInResult(getClosingPointsOutIndex(solution, originalTrack, solverTrack));
-  pushInResult(getEntryPointsFinishIndex(solution, originalTrack, solverTrack));
+    .forEach((index) => pushInResult(solverTrack.getIndexInScoringTrack(index), result));
+  pushInResult(getClosingPointsOutIndex(solution, solverTrack), result);
+  pushInResult(getEntryPointsFinishIndex(solution, solverTrack), result);
   return result;
 
-  function pushInResult(index: number) {
-    if (index >= 0) {
-      result.push(index);
-    }
+}
+
+function pushInResult(index: number, result: number[]) {
+  if (index >= 0) {
+    result.push(index);
   }
 }
 
-function getEntryPointsStartIndex(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
+function getEntryPointsStartIndex(solution: Solution, solverTrack: SolverTrack): number {
   // console.debug('getEntryPointsStartIndex', solution.scoreInfo?.ep?.start.r);
-  return getPointIndex(solution.scoreInfo?.ep?.start.r, originalTrack, solverTrack);
+  return solverTrack.getIndexInScoringTrack(solution.scoreInfo?.ep?.start.r);
 }
 
-function getClosingPointsInIndex(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
+function getClosingPointsInIndex(solution: Solution, solverTrack: SolverTrack): number {
   // console.debug('getClosingPointsInIndex', solution.scoreInfo?.cp?.in.r);
-  return getPointIndex(solution.scoreInfo?.cp?.in.r, originalTrack, solverTrack);
+  return solverTrack.getIndexInScoringTrack(solution.scoreInfo?.cp?.in.r);
 }
 
-function getClosingPointsOutIndex(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
+function getClosingPointsOutIndex(solution: Solution, solverTrack: SolverTrack): number {
   // console.debug('getClosingPointsOutIndex', solution.scoreInfo?.cp?.out.r);
-  return getPointIndex(solution.scoreInfo?.cp?.out.r, originalTrack, solverTrack);
+  return solverTrack.getIndexInScoringTrack(solution.scoreInfo?.cp?.out.r);
 }
 
-function getEntryPointsFinishIndex(solution: Solution, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
+function getEntryPointsFinishIndex(solution: Solution, solverTrack: SolverTrack): number {
   // console.debug('getEntryPointsFinishIndex', solution.scoreInfo?.ep?.finish.r);
-  return getPointIndex(solution.scoreInfo?.ep?.finish.r, originalTrack, solverTrack);
+  return solverTrack.getIndexInScoringTrack(solution.scoreInfo?.ep?.finish.r);
 }
 
-function getPointIndex(index: number | undefined, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
-  if (index === undefined) {
-    return -1;
-  }
-  return solutionContainsValidIndices(originalTrack, solverTrack)
-    ? index
-    : getIndexInOriginalTrack(index, originalTrack, solverTrack);
-}
-
-function solutionContainsValidIndices(originalTrack: ScoringTrack, solverTrack: ScoringTrack): boolean {
-  return originalTrack.points.length === solverTrack.points.length;
-}
-
-function getIndexInOriginalTrack(index: number, originalTrack: ScoringTrack, solverTrack: ScoringTrack): number {
-  const solutionPoint = solverTrack.points[index];
-  let indexInOriginalTrack = -1;
-  let closestDistance = Number.MAX_VALUE;
-  for (let i = 0; i < originalTrack.points.length; i++) {
-    const point = originalTrack.points[i];
-    const distance = getDistance(point, solutionPoint);
-    if (distance < closestDistance) {
-      closestDistance = distance;
-      indexInOriginalTrack = i;
-    }
-  }
-  return indexInOriginalTrack;
-}
-
-// Not the most performant solution but is used only for slow dimension problems
+// Not the most performant solution but is used only for a low dimension problems
 function deepCopy<T>(source: T): T {
   return JSON.parse(JSON.stringify(source));
 }
+
+/**
+ * Embeds the track to score for the solver
+ */
+class SolverTrack {
+  // When the track has not enough points (<5), we build a new one by adding interpolated points between existing ones.
+  // see this issue https://github.com/mmomtchev/igc-xc-score/issues/231
+  private static MIN_POINTS = 5;
+
+  // For adding interpolated points, this constant adjusts the proximity of the points to the starting point of
+  // the segment. We want the added points to be very close to the starting points of the segment so that the solution
+  // points returned by the solver are as close as possible (or may be equal) to one of the original points of the track.
+  private static DISTRIBUTION_FACTOR_FOR_ADDED_POINTS = 1e-5;
+
+  /**
+   * the track to optimize
+   */
+  private readonly scoringTrack: ScoringTrack;
+  /**
+   * Mapping between indices in solver track and indices in original track.
+   * The key is an index in solver track, the value is an index in original track
+   * This mapping is only needed when the original track has not the required number of points.
+   */
+  private readonly solverTrackToTrackMapping: Map<number, number>;
+
+  /**
+   * the solver requires at least 5 points, so if there is not enough points,
+   * we create points between existing ones
+   */
+  constructor(track: ScoringTrack) {
+    this.solverTrackToTrackMapping = new Map<number, number>();
+    if (track.points.length >= SolverTrack.MIN_POINTS) {
+      this.scoringTrack = track;
+      return;
+    }
+    // console.debug(`not enough points (${track.points.length}) in track. Interpolate intermediate points`);
+    track = deepCopy(track);
+    const subTracks: ScoringTrack[] = [];
+    if (track.points.length === 2) {
+      // add 3 points near the first point => 4 segments
+      subTracks.push(
+        createSegments(track.points[0], track.points[1], track.startTimeSec, 4, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      this.solverTrackToTrackMapping
+        // first, second, third and fourth points of solver track are near the first point of the original track
+        .set(0, 0)
+        .set(1, 0)
+        .set(2, 0)
+        .set(3, 0)
+        // fifth point of solver track is near the second point of the original track
+        .set(4, 1);
+    } else if (track.points.length === 3) {
+      // add 1 point near the first point => 2 segments
+      subTracks.push(
+        createSegments(track.points[0], track.points[1], track.startTimeSec, 2, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      // add 1 point near the second point => 2 segments
+      subTracks.push(
+        createSegments(track.points[1], track.points[2], track.startTimeSec, 2, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      this.solverTrackToTrackMapping
+        // first and second points of solver track are near the first point of the original track
+        .set(0, 0)
+        .set(1, 0)
+        // third and fourth points of solver track are near the second point of the original track
+        .set(2, 1)
+        .set(3, 1)
+        // fifth point of solver track is near the third point of the original track
+        .set(4, 2);
+    } else if (track.points.length === 4) {
+      // add 1 point near the first point => 2 segments
+      subTracks.push(
+        createSegments(track.points[0], track.points[1], track.startTimeSec, 2, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      // add 0 point near the second point => 1 segment
+      subTracks.push(
+        createSegments(track.points[1], track.points[2], track.startTimeSec, 1, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      // add 0 point near the third point => 1 segment
+      subTracks.push(
+        createSegments(track.points[2], track.points[3], track.startTimeSec, 1, SolverTrack.DISTRIBUTION_FACTOR_FOR_ADDED_POINTS),
+      );
+      this.solverTrackToTrackMapping
+        // first and second points of solver track are near the first point of the original track
+        .set(0, 0)
+        .set(1, 0)
+        // third point of solver track is near the second point of the original track
+        .set(2, 1)
+        // fourth point of solver track is near the third point of the original track
+        .set(3, 2)
+        // fifth point of solver track is near the fourth point of the original track
+        .set(4, 3);
+    }
+    track = mergeTracks(...subTracks);
+    this.scoringTrack = track;
+  }
+
+  /**
+   * translates an index of a solution point returned by the solver to an index in the track to score
+   * @param index index of a solution point
+   * @return the index in the ScoringTrack (given in constructor)
+   */
+  public getIndexInScoringTrack(index: number): number {
+    if (index === undefined) {
+      return -1;
+    }
+    return this.solverTrackToTrackMapping.size === 0 ? index : this.solverTrackToTrackMapping[index];
+  }
+
+  /**
+   * create igc file for the solver
+   */
+  public toIgcFile(): IGCFile {
+    const fixes = this.scoringTrack.points.map((point): BRecord => {
+      const timeMilliseconds = point.timeSec * 1000;
+      return {
+        timestamp: timeMilliseconds,
+        time: new Date(timeMilliseconds).toISOString(),
+        latitude: point.lat,
+        longitude: point.lon,
+        valid: true,
+        pressureAltitude: null,
+        gpsAltitude: point.alt,
+        extensions: {},
+        fixAccuracy: null,
+        enl: null,
+      };
+    });
+    // we ignore some properties of the igc-file, as they are not required for the computation
+    // @ts-ignore
+    return {
+      date: new Date(this.scoringTrack.startTimeSec * 1000).toISOString(),
+      fixes: fixes,
+    };
+  }
+}
+

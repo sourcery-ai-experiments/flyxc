@@ -1,4 +1,4 @@
-import { OptimizationResult, getOptimizer } from './optimizer';
+import { getOptimizer, OptimizationResult } from './optimizer';
 import {
   createClosedFaiTriangleFixture,
   createClosedFaiTriangleFixtureWithSmallCycle,
@@ -9,6 +9,7 @@ import {
   createFreeDistance2PointsFixture,
   createFreeDistance3PointsFixture,
   createFreeDistanceFixture,
+  createOnePointTrackFixture,
   OptimizerFixture,
 } from './fixtures/optimizer.fixtures';
 import { scoringRulesNames } from './scoringRules';
@@ -16,6 +17,12 @@ import { scoringRulesNames } from './scoringRules';
 describe('optimizer', () => {
   describe('given an empty request', () => {
     const fixture = createEmptyTrackFixture();
+    it('should return a 0 score', () => {
+      expectOptimizationIsAsExpected(fixture);
+    });
+  });
+  describe('given a request with 1 point', () => {
+    const fixture = createOnePointTrackFixture({ lat: 45, lon: 5 });
     it('should return a 0 score', () => {
       expectOptimizationIsAsExpected(fixture);
     });

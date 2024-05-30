@@ -1,4 +1,4 @@
-import { OptimizationRequest, OptimizationResult, CircuitType } from '../optimizer';
+import { CircuitType, OptimizationRequest, OptimizationResult } from '../optimizer';
 import { computeDestinationPoint, getGreatCircleBearing, getPreciseDistance } from 'geolib';
 import { createSegments } from '../utils/createSegments';
 import { mergeTracks } from '../utils/mergeTracks';
@@ -32,7 +32,24 @@ export function createEmptyTrackFixture(): OptimizerFixture {
       score: 0,
       lengthKm: 0,
       multiplier: 0,
-      circuit: undefined,
+      optimal: true,
+    },
+  };
+}
+
+/**
+ * returns track with 1 point and its expected score
+ */
+export function createOnePointTrackFixture(point: LatLon): OptimizerFixture {
+  return {
+    request: {
+      track: { points: [{ ...point, alt: 0, timeSec: 0 }], startTimeSec: 0 },
+    },
+    rules: 'FederationFrancaiseVolLibre',
+    expectedResult: {
+      score: 0,
+      lengthKm: 0,
+      multiplier: 0,
       optimal: true,
     },
   };
