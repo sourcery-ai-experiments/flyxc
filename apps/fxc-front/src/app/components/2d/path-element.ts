@@ -219,10 +219,9 @@ export class PathElement extends connect(store)(LitElement) {
     store.dispatch(setDistance(google.maps.geometry.spherical.computeLength(line.getPath())));
 
     const points = this.getPathPoints();
-    const score = computeScore(points, this.league);
-    const useCurrentTrack = false;
-    const scoringInfo = { score, points, useCurrentTrack };
-    store.dispatch(setScoringInfo(scoringInfo));
+    computeScore(points, this.league, (score) => {
+      store.dispatch(setScoringInfo({ score, points, useCurrentTrack: false }));
+    });
   }
 
   // draw the optimize lines and sectors.
@@ -257,7 +256,7 @@ export class PathElement extends connect(store)(LitElement) {
     if (score.closingRadiusM) {
       const center = points[score.indexes[0]];
       this.closingSector.center = center;
-      this.closingSector.radius = score.closingRadiusM;
+      this.closingSector.radius = score.closingRadiusM / 1000;
       this.closingSector.update();
       this.closingSector.setMap(this.map);
     } else {

@@ -4,7 +4,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 import { when } from 'lit/directives/when.js';
 import { connect } from 'pwa-helpers';
 
-import { computeScore, getSampledTrack, getTrackLengthKm } from '../../logic/score/scorer';
+import { computeScore, getSampledTrack, getTrackLengthKm, Score } from '../../logic/score/scorer';
 import * as units from '../../logic/units';
 import * as planner from '../../redux/planner-slice';
 import { RootState, store } from '../../redux/store';
@@ -293,21 +293,24 @@ export class PlannerElement extends connect(store)(LitElement) {
       const points = track.lat.map((lat, index) => {
         return { lat, lon: track.lon[index], alt: track.alt[index], timeSec: track.timeSec[index] };
       });
-      const score = computeScore(points, currentLeague(store.getState()));
-      const scoringInfo = { score, points, useCurrentTrack: true };
-      store.dispatch(planner.setScoringInfo(scoringInfo));
-      const durationS = points.at(-1)!.timeSec - points[0].timeSec;
-      const durationH = durationS / 3600;
-      const sampledTrack = getSampledTrack(points, 15 * 60);
-      score.indexes.forEach((index) => sampledTrack.push(points[index]));
-      sampledTrack.sort((a, b) => Math.sign(a.timeSec - b.timeSec));
-      sampledTrack.push(points.at(-1)!)
-      store.dispatch(planner.setSampledTrack(sampledTrack));
-      const sampledTrackLengthKm = getTrackLengthKm(sampledTrack);
-      this.duration = durationS;
-      this.distance = sampledTrackLengthKm;
-      store.dispatch(planner.setSpeed(sampledTrackLengthKm / durationH));
-      store.dispatch(planner.setDistance(sampledTrackLengthKm * 1000));
+      computeScore(points, currentLeague(store.getState()), (score: Score) => {
+        // Should be elsewhere may-be?
+        const scoringInfo = { score, points, useCurrentTrack: true };
+        store.dispatch(planner.setScoringInfo(scoringInfo));
+        const durationS = points.at(-1)!.timeSec - points[0].timeSec;
+        const durationH = durationS / 3600;
+        const sampledTrack = getSampledTrack(points, 15 * 60);
+        score.indexes.forEach((index) => sampledTrack.push(points[index]));
+        sampledTrack.sort((a, b) => Math.sign(a.timeSec - b.timeSec));
+        sampledTrack.push(points.at(-1)!);
+        store.dispatch(planner.setSampledTrack(sampledTrack));
+        const sampledTrackLengthKm = getTrackLengthKm(sampledTrack);
+        this.duration = durationS;
+        this.distance = sampledTrackLengthKm;
+        store.dispatch(planner.setSpeed(sampledTrackLengthKm / durationH));
+        store.dispatch(planner.setDistance(sampledTrackLengthKm * 1000));
+      });
+
     }
   }
 }

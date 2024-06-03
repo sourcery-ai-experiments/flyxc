@@ -1,6 +1,8 @@
-import { CircuitType, getOptimizer, ScoringRuleName, ScoringTrack } from '@flyxc/optimizer';
+import { CircuitType, ScoringResult, ScoringRuleName, ScoringTrack } from '@flyxc/optimizer';
 import { LatLon } from '@flyxc/common';
 import { getPathLength } from 'geolib';
+import ScoreWorker from '../../workers/score-track?worker';
+import { ScoreWorkerMessage } from '../../workers/score-track';
 
 export class Score {
   distanceM: number;
@@ -25,7 +27,11 @@ export type LatLonAndMaybeAltTime = LatLon & {
   timeSec?: number;
 };
 
-export function computeScore(points: LatLonAndMaybeAltTime[], league: string): Score {
+export function computeScore(
+  points: LatLonAndMaybeAltTime[],
+  league: string,
+  onResultCallback: (score: Score) => void,
+) {
   const track: ScoringTrack = {
     points: points.map((point, i) => {
       return {
@@ -35,15 +41,24 @@ export function computeScore(points: LatLonAndMaybeAltTime[], league: string): S
       };
     }),
   };
-  const result = getOptimizer({ track }, getScoringRule(league)).next().value;
-  return new Score({
-    circuit: result.circuit,
-    distanceM: result.lengthKm * 1000,
-    multiplier: result.multiplier,
-    closingRadiusM: result.closingRadiusM ? result.closingRadiusM * 1000 : null,
-    indexes: result.solutionIndices,
-    points: result.score,
-  });
+
+  const message: ScoreWorkerMessage = {
+    request: { track },
+    rule: getScoringRule(league),
+  };
+
+  getScoreWorker((result) =>
+    onResultCallback(
+      new Score({
+        circuit: result.circuit,
+        distanceM: result.lengthKm * 1000,
+        multiplier: result.multiplier,
+        closingRadiusM: result.closingRadiusM ? result.closingRadiusM * 1000 : null,
+        indexes: result.solutionIndices,
+        points: result.score,
+      }),
+    ),
+  ).postMessage(message);
 }
 
 export function getSampledTrack(points: ({ lat: number, lon: number, timeSec: number })[], sampleIntervalSec: number) {
@@ -90,4 +105,16 @@ function getScoringRule(league: string): ScoringRuleName {
       return 'WorldXC';
   }
   throw new Error(`no Scoring Rules for league ${league}`);
+}
+
+let scoreWorker: Worker | undefined;
+
+function getScoreWorker(callback: (scoringResult: ScoringResult) => void): Worker {
+  if (!scoreWorker) {
+    scoreWorker = new ScoreWorker() as Worker;
+  }
+  scoreWorker.onmessage = (msg: MessageEvent<ScoringResult>) => {
+    callback(msg.data);
+  };
+  return scoreWorker;
 }
